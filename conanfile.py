@@ -8,7 +8,7 @@ from conan.tools.layout import LayoutPackager, clion_layout
 
 class CuraEngineConan(ConanFile):
     name = "CuraEngine"
-    version = "4.10.0"
+    version = "Arachne"
     license = "AGPL-3.0"
     author = "Ultimaker B.V."
     url = "https://github.com/Ultimaker/CuraEngine"
