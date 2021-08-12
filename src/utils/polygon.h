@@ -5,10 +5,9 @@
 #define UTILS_POLYGON_H
 
 #include <vector>
-#include <cassert>
-#include <cfloat>
-#include <algorithm>
-#include <clipper.hpp>
+#include <assert.h>
+#include <float.h>
+#include <polyclipping/clipper.hpp>
 
 #include <algorithm>    // std::reverse, fill_n array
 #include <cmath> // fabs
@@ -17,9 +16,8 @@
 
 #include <initializer_list>
 
-#include "../settings/types/AngleDegrees.h" //For angles between vertices.
-#include "../settings/types/Ratio.h"
 #include "IntPoint.h"
+#include "../settings/types/Angle.h" //For angles between vertices.
 
 #define CHECK_POLY_ACCESS
 #ifdef CHECK_POLY_ACCESS
@@ -30,22 +28,6 @@
 
 namespace cura {
 
-template<typename T>
-bool shorterThan(const T& shape, const coord_t check_length)
-{
-    const auto* p0 = &shape.back();
-    int64_t length = 0;
-    for (const auto& p1 : shape)
-    {
-        length += vSize(*p0 - p1);
-        if (length >= check_length)
-        {
-            return false;
-        }
-        p0 = &p1;
-    }
-    return true;
-}
 
 class PartsView;
 class Polygons;
@@ -125,11 +107,6 @@ public:
     ClipperLib::Path::const_reference back() const
     {
         return path->back();
-    }
-
-    ClipperLib::Path::const_reference front() const
-    {
-        return path->front();
     }
 
     const void* data() const
@@ -404,10 +381,9 @@ public:
         return (*path)[index];
     }
 
-    const Point& operator[] (unsigned int index) const
+    const Point& operator[] (const unsigned int& index) const
     {
-        POLY_ASSERT(index < size());
-        return (*path)[index];
+        return path->at(index);
     }
 
     ClipperLib::Path::iterator begin()
@@ -452,12 +428,6 @@ public:
         path->erase(path->begin() + index);
     }
 
-    void insert(size_t index, Point p)
-    {
-        POLY_ASSERT(index < size() && index <= static_cast<size_t>(std::numeric_limits<int>::max()));
-        path->insert(path->begin() + index, p);
-    }
-
     void clear()
     {
         path->clear();
@@ -481,9 +451,7 @@ public:
         }
     }
 
-    void removeColinearEdges(const AngleRadians max_deviation_angle);
-
-    /*!
+    /*! 
      * Removes consecutive line segments with same orientation and changes this polygon.
      * 
      * 1. Removes verts which are connected to line segments which are too small.
@@ -639,7 +607,6 @@ class Polygons
     friend class Polygon;
     friend class PolygonRef;
     friend class ConstPolygonRef;
-    friend class PolygonUtils;
 protected:
     ClipperLib::Paths paths;
 public:
@@ -826,22 +793,13 @@ public:
      */
     Polygons& cut(const Polygons& tool);
 
-    Polygons xorPolygons(const Polygons& other, ClipperLib::PolyFillType pft = ClipperLib::pftEvenOdd) const
+    Polygons xorPolygons(const Polygons& other) const
     {
         Polygons ret;
         ClipperLib::Clipper clipper(clipper_init);
         clipper.AddPaths(paths, ClipperLib::ptSubject, true);
         clipper.AddPaths(other.paths, ClipperLib::ptClip, true);
-        clipper.Execute(ClipperLib::ctXor, ret.paths, pft);
-        return ret;
-    }
-
-    Polygons execute (ClipperLib::PolyFillType pft = ClipperLib::pftEvenOdd) const
-    {
-        Polygons ret;
-        ClipperLib::Clipper clipper(clipper_init);
-        clipper.AddPaths(paths, ClipperLib::ptSubject, true);
-        clipper.Execute(ClipperLib::ctXor, ret.paths, pft);
+        clipper.Execute(ClipperLib::ctXor, ret.paths);
         return ret;
     }
 
@@ -916,11 +874,6 @@ public:
     Polygons approxConvexHull(int extra_outset = 0);
 
     /*!
-     * Make each of the polygons convex
-     */
-    void makeConvex();
-
-    /*!
      * Compute the area enclosed within the polygons (minus holes)
      * 
      * \return The area in square micron
@@ -951,20 +904,6 @@ public:
 
     Polygons smooth2(int remove_length, int min_area) const; //!< removes points connected to small lines
     
-    void removeColinearEdges(const AngleRadians max_deviation_angle = AngleRadians(0.0005))
-    {
-        Polygons& thiss = *this;
-        for (size_t p = 0; p < size(); p++)
-        {
-            thiss[p].removeColinearEdges(max_deviation_angle);
-            if (thiss[p].size() < 3)
-            {
-                remove(p);
-                p--;
-            }
-        }
-    }
-
     /*!
      * Removes vertices of the polygons to make sure that they are not too high
      * resolution.
@@ -1007,35 +946,6 @@ public:
                 remove(p);
                 p--;
             }
-        }
-    }
-
-    void scale(const Ratio& ratio)
-    {
-        if (ratio == 1.)
-        {
-            return;
-        }
-
-        for (auto& points : *this)
-        {
-            for (auto& pt : points)
-            {
-                pt = pt * static_cast<double>(ratio);
-            }
-        }
-    }
-
-    void translate(const Point vec)
-    {
-        if (vec.X == 0 && vec.Y == 0)
-        {
-            return;
-        }
-
-        for (PolygonRef poly : *this)
-        {
-            poly.translate(vec);
         }
     }
 
@@ -1213,25 +1123,14 @@ public:
         return result;
     }
 
-    Polygons processEvenOdd(ClipperLib::PolyFillType poly_fill_type = ClipperLib::PolyFillType::pftEvenOdd) const
+    Polygons processEvenOdd() const
     {
         Polygons ret;
         ClipperLib::Clipper clipper(clipper_init);
         clipper.AddPaths(paths, ClipperLib::ptSubject, true);
-        clipper.Execute(ClipperLib::ctUnion, ret.paths, poly_fill_type);
+        clipper.Execute(ClipperLib::ctUnion, ret.paths);
         return ret;
     }
-
-    /*!
-     * Ensure the polygon is manifold, by removing small areas where the polygon touches itself.
-     *  ____                  ____
-     * |    |                |    |
-     * |    |____     ==>    |   / ____
-     *  """"|    |            """ /    |
-     *      |____|                |____|
-     *
-     */
-    void ensureManifold();
 
     coord_t polygonLength() const
     {
@@ -1280,17 +1179,6 @@ public:
     }
 
     void applyMatrix(const PointMatrix& matrix)
-    {
-        for(unsigned int i=0; i<paths.size(); i++)
-        {
-            for(unsigned int j=0; j<paths[i].size(); j++)
-            {
-                paths[i][j] = matrix.apply(paths[i][j]);
-            }
-        }
-    }
-
-    void applyMatrix(const Point3Matrix& matrix)
     {
         for(unsigned int i=0; i<paths.size(); i++)
         {
