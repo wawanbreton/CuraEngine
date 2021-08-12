@@ -56,6 +56,7 @@ class CuraEngineConan(ConanFile):
             self.requires("protobuf/3.17.1")
         self.requires("clipper/[>=6.4.2]")
         self.requires("rapidjson/[>=1.1.0]")
+        self.requires("boost/1.70.0")
 
     def validate(self):
         if self.settings.compiler.get_safe("cppstd"):
