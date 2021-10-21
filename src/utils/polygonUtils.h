@@ -7,6 +7,7 @@
 #include <vector>
 #include <functional> // function
 #include <optional>
+#include <memory> // unique_ptr
 
 #include "polygon.h"
 #include "SparsePointGridInclusive.h"
@@ -134,6 +135,16 @@ public:
      * \param result Where to store the generated points
      */
     static void spreadDots(PolygonsPointIndex start, PolygonsPointIndex end, unsigned int n_dots, std::vector<ClosestPolygonPoint>& result);
+
+    /*!
+     * Generate a grid of dots inside of the area of the \p polygons.
+     */
+    static std::vector<Point> spreadDotsArea(const Polygons& polygons, coord_t grid_size);
+
+    /*!
+     * Wether a polygon intersects with a line-segment. If true, the closest collission point to 'b' is stored in the result.
+     */
+    static bool lineSegmentPolygonsIntersection(const Point& a, const Point& b, const Polygons& current_outlines, const LocToLineGrid& outline_locator, Point& result);
 
     /*!
      * Get the normal of a boundary point, pointing outward.
@@ -423,7 +434,7 @@ public:
      * \param square_size The cell size used to bundle line segments (also used to chop up lines so that multiple cells contain the same long line)
      * \return A bucket grid mapping spatial locations to poly-point indices into \p polygons
      */
-    static LocToLineGrid* createLocToLineGrid(const Polygons& polygons, int square_size);
+    static std::unique_ptr<LocToLineGrid> createLocToLineGrid(const Polygons& polygons, int square_size);
 
     /*!
      * Find the line segment closest to a given point \p from within a cell-block of a size defined in the SparsePointGridInclusive \p loc_to_line
@@ -480,6 +491,10 @@ public:
     */
     static bool getNextPointWithDistance(Point from, int64_t dist, ConstPolygonRef poly, int start_idx, int poly_start_idx, GivenDistPoint& result);
 
+    /*!
+     * Walk a given \p distance along the polygon from a given point \p from on the polygon
+     */
+    static ClosestPolygonPoint walk(const ClosestPolygonPoint& from, coord_t distance);
 
     /*!
      * Get the point on a polygon which intersects a line parallel to a line going through the starting point and through another point.

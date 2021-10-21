@@ -127,22 +127,18 @@ bool InsetOrderOptimizer::optimize(const WallType& wall_type)
     return added_something;
 }
 
-size_t InsetOrderOptimizer::getOuterRegionId(const VariableWidthPaths& toolpaths, size_t& out_number_of_regions)
+size_t InsetOrderOptimizer::getOuterRegionId(const VariableWidthPaths& toolpaths, size_t& out_max_region_id)
 {
     // Polygons show up here one by one, so there are always only a) the outer lines and b) the lines that are part of the holes.
     // Therefore, the outer-regions' lines will always have the region-id that is larger then all of the other ones.
 
     // First, build the bounding boxes:
-    std::map<size_t, AABB> region_ids_to_bboxes;
+    std::map<size_t, AABB> region_ids_to_bboxes; //Use a sorted map, ordered by region_id, so that we can find the largest region_id quickly.
     for (const VariableWidthLines& path : toolpaths)
     {
         for (const ExtrusionLine& line : path)
         {
-            if (region_ids_to_bboxes.count(line.region_id) == 0)
-            {
-                region_ids_to_bboxes[line.region_id] = AABB();
-            }
-            AABB& aabb = region_ids_to_bboxes[line.region_id];
+            AABB& aabb = region_ids_to_bboxes[line.region_id]; // Empty AABBs are default initialized when region_ids are encountered for the first time.
             for (const auto& junction : line.junctions)
             {
                 aabb.include(junction.p);
@@ -162,7 +158,8 @@ size_t InsetOrderOptimizer::getOuterRegionId(const VariableWidthPaths& toolpaths
         }
     }
 
-    out_number_of_regions = region_ids_to_bboxes.size();
+    // Maximum Region-ID (using the ordering of the map)
+    out_max_region_id = region_ids_to_bboxes.empty() ? 0 : region_ids_to_bboxes.rbegin()->first;
     return outer_region_id;
 }
 
@@ -176,12 +173,12 @@ BinJunctions InsetOrderOptimizer::variableWidthPathToBinJunctions(const Variable
     }
 
     // Find which regions are associated with the outer-outer walls (which region is the one the rest is holes inside of):
-    size_t number_of_regions = 0;
-    const size_t outer_region_id = getOuterRegionId(toolpaths, number_of_regions);
+    size_t max_region_id = 0;
+    const size_t outer_region_id = getOuterRegionId(toolpaths, max_region_id);
 
     //Since we're (optionally!) splitting off in the outer and inner regions, it may need twice as many bins as inset-indices.
     //Add two extra bins for the center-paths, if they need to be stored separately. One bin for inner and one for outer walls.
-    const size_t max_bin = (pack_regions_by_inset ? (number_of_regions * 2) + 2 : (max_inset_index + 1) * 2) + center_last * 2;
+    const size_t max_bin = (pack_regions_by_inset ? (max_region_id * 2) + 2 : (max_inset_index + 1) * 2) + center_last * 2;
     BinJunctions insets(max_bin + 1);
     for (const VariableWidthLines& path : toolpaths)
     {

@@ -88,13 +88,17 @@ set(engine_SRCS # Except main.cpp.
         src/communication/CommandLine.cpp
         src/communication/Listener.cpp
 
-        src/infill/ImageBasedDensityProvider.cpp
-        src/infill/NoZigZagConnectorProcessor.cpp
-        src/infill/ZigzagConnectorProcessor.cpp
-        src/infill/SierpinskiFill.cpp
-        src/infill/SierpinskiFillProvider.cpp
-        src/infill/SubDivCube.cpp
-        src/infill/GyroidInfill.cpp
+    src/infill/ImageBasedDensityProvider.cpp
+    src/infill/NoZigZagConnectorProcessor.cpp
+    src/infill/ZigzagConnectorProcessor.cpp
+    src/infill/LightningDistanceField.cpp
+    src/infill/LightningGenerator.cpp
+    src/infill/LightningLayer.cpp
+    src/infill/LightningTreeNode.cpp
+    src/infill/SierpinskiFill.cpp
+    src/infill/SierpinskiFillProvider.cpp
+    src/infill/SubDivCube.cpp
+    src/infill/GyroidInfill.cpp
 
         src/pathPlanning/Comb.cpp
         src/pathPlanning/GCodePath.cpp
@@ -133,6 +137,7 @@ set(engine_SRCS # Except main.cpp.
     src/utils/ProximityPointLink.cpp
     src/utils/SVG.cpp
     src/utils/socket.cpp
+    src/utils/SquareGrid.cpp
     src/utils/ToolpathVisualizer.cpp
     src/utils/VoronoiUtils.cpp
 )

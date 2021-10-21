@@ -91,6 +91,8 @@ void SkinInfillAreaComputation::generateSkinsAndInfill()
         SliceLayerPart& part = layer->parts[part_nr];
 
         generateRoofing(part);
+
+        generateTopAndBottomMostSkinSurfaces(part);
     }
 }
 
@@ -263,12 +265,12 @@ void SkinInfillAreaComputation::applySkinExpansion(const Polygons& original_outl
     // Remove thin pieces of support for Skin Removal Width.
     if(bottom_skin_preshrink > 0 || (min_width == 0 && bottom_skin_expand_distance != 0))
     {
-        downskin = downskin.offset(-bottom_skin_preshrink / 2).offset(bottom_skin_preshrink / 2);
+        downskin = downskin.offset(-bottom_skin_preshrink / 2, ClipperLib::jtRound).offset(bottom_skin_preshrink / 2, ClipperLib::jtRound);
         should_bottom_be_clipped = true;  // Rounding errors can lead to propagation of errors. This could mean that skin goes beyond the original outline
     }
     if(top_skin_preshrink > 0 || (min_width == 0 && top_skin_expand_distance != 0))
     {
-        upskin = upskin.offset(-top_skin_preshrink / 2).offset(top_skin_preshrink / 2);
+        upskin = upskin.offset(-top_skin_preshrink / 2, ClipperLib::jtRound).offset(top_skin_preshrink / 2, ClipperLib::jtRound);
         should_top_be_clipped = true;  // Rounding errors can lead to propagation of errors. This could mean that skin goes beyond the original outline
     }
 
@@ -306,9 +308,19 @@ void SkinInfillAreaComputation::generateRoofing(SliceLayerPart& part)
 
     for(SkinPart& skin_part : part.skin_parts)
     {
-        if(roofing_layer_count > 0)
+        Polygons no_air_above = generateNoAirAbove(part, roofing_layer_count);
+        skin_part.roofing_fill = skin_part.skin_fill.difference(no_air_above);
+        skin_part.skin_fill = skin_part.skin_fill.intersection(no_air_above);
+
+        // Insets are NOT generated for any layer if the top/bottom pattern is concentric.
+        // In this case, we still want to generate insets for the roofing layers based on the extra skin wall count,
+        // if the roofing pattern is not concentric.
+        if (!skin_part.roofing_fill.empty()
+            && layer_nr > 0
+            && mesh.settings.get<EFillMethod>("roofing_pattern") != EFillMethod::CONCENTRIC
+            && mesh.settings.get<EFillMethod>("top_bottom_pattern") == EFillMethod::CONCENTRIC)
         {
-            Polygons no_air_above = generateNoAirAbove(part);
+            Polygons no_air_above = generateNoAirAbove(part, roofing_layer_count);
             skin_part.roofing_fill = skin_part.outline.difference(no_air_above);
             skin_part.skin_fill = skin_part.outline.intersection(no_air_above);
             const bool concentric_skinfill_pattern =
@@ -351,9 +363,9 @@ void SkinInfillAreaComputation::generateRoofing(SliceLayerPart& part)
  *
  * this function may only read the skin and infill from the *current* layer.
  */
-Polygons SkinInfillAreaComputation::generateNoAirAbove(SliceLayerPart& part)
+Polygons SkinInfillAreaComputation::generateNoAirAbove(SliceLayerPart& part, size_t roofing_layer_count)
 {
-    const size_t roofing_layer_count = std::min(mesh.settings.get<size_t>("roofing_layer_count"), mesh.settings.get<size_t>("top_layers"));
+    const size_t wall_idx = std::min(size_t(2), mesh.settings.get<size_t>("wall_line_count"));
 
     Polygons no_air_above = getOutlineOnLayer(part, layer_nr + roofing_layer_count);
     if (!no_small_gaps_heuristic)
@@ -387,11 +399,41 @@ Polygons SkinInfillAreaComputation::generateNoAirAbove(SliceLayerPart& part)
  * This function is executed in a parallel region based on layer_nr.
  * When modifying make sure any changes does not introduce data races.
  *
+ * this function may only read the skin and infill from the *current* layer.
+ */
+    Polygons SkinInfillAreaComputation::generateNoAirBelow(SliceLayerPart& part, size_t flooring_layer_count)
+    {
+        if (layer_nr < flooring_layer_count)
+        {
+            return {};
+        }
+        constexpr size_t min_wall_line_count = 2;
+        const int lowest_flooring_layer = layer_nr - flooring_layer_count;
+        Polygons no_air_below = getOutlineOnLayer(part, lowest_flooring_layer);
+
+        if (!no_small_gaps_heuristic)
+        {
+            const int next_lowest_flooring_layer = lowest_flooring_layer + 1;
+            for (int layer_nr_below = next_lowest_flooring_layer; layer_nr_below < layer_nr; layer_nr_below++)
+            {
+                Polygons outlines_below = getOutlineOnLayer(part, layer_nr_below);
+                no_air_below = no_air_below.intersection(outlines_below);
+            }
+        }
+        return no_air_below;
+    }
+
+/*
+ * This function is executed in a parallel region based on layer_nr.
+ * When modifying make sure any changes does not introduce data races.
+ *
  * this function may only read/write the skin and infill from the *current* layer.
  */
 void SkinInfillAreaComputation::regenerateRoofingFillAndInnerInfill(SliceLayerPart& part, SkinPart& skin_part)
 {
-    Polygons no_air_above = generateNoAirAbove(part);
+    const size_t roofing_layer_count = std::min(mesh.settings.get<size_t>("roofing_layer_count"), mesh.settings.get<size_t>("top_layers"));
+
+    Polygons no_air_above = generateNoAirAbove(part, roofing_layer_count);
     skin_part.roofing_fill = skin_part.outline.difference(no_air_above);
     skin_part.skin_fill = skin_part.outline.intersection(no_air_above);
 }
@@ -596,6 +638,24 @@ void SkinInfillAreaComputation::combineInfillLayers(SliceMeshStorage& mesh)
                 }
             }
         }
+    }
+}
+
+/*
+ * This function is executed in a parallel region based on layer_nr.
+ * When modifying make sure any changes does not introduce data races.
+ *
+ * this function may only read/write the skin and infill from the *current* layer.
+ */
+
+void SkinInfillAreaComputation::generateTopAndBottomMostSkinSurfaces(SliceLayerPart &part) {
+
+    for (SkinPart& skin_part : part.skin_parts) {
+        Polygons no_air_above = generateNoAirAbove(part, 1);
+        skin_part.top_most_surface_fill = skin_part.skin_fill.difference(no_air_above);
+
+        Polygons no_air_below = generateNoAirBelow(part, 1);
+        skin_part.bottom_most_surface_fill = skin_part.skin_fill.difference(no_air_below);
     }
 }
 
