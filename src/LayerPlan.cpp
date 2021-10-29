@@ -2,6 +2,7 @@
 //CuraEngine is released under the terms of the AGPLv3 or higher.
 
 #include <cstring>
+#include <deque>
 
 #include "Application.h" //To communicate layer view data.
 #include "ExtruderTrain.h"
@@ -1176,24 +1177,65 @@ void LayerPlan::addLinesMonotonic
             return vSize2(path[1] - path[0]) < exclude_dist2 && exclude_areas.inside((path[0] + path[1]) / 2);
         };
 
+    const Point monotonic_vector = PathOrderMonotonic<ConstPolygonRef>::getVectorFromAngle(monotonic_direction);
+    const auto is_monotonic_order =
+        [&monotonic_vector](const Polygon& a, const Polygon& b, const Polygon& c)
+        {
+            const bool ab_order = PathOrderMonotonic<ConstPolygonRef>::isMonotonic(monotonic_vector, a, b);
+            const bool bc_order = PathOrderMonotonic<ConstPolygonRef>::isMonotonic(monotonic_vector, b, c);
+            return ab_order == bc_order;
+        };
+
+    std::deque<size_t> exclude_indices;
+    size_t current_string_start_index = 1;
+    bool any_non_monotonic = false;
+    bool last_inside_exclusion = false;
+    const size_t size_minus_last = line_order.polyOrder.size() - 1;
+    for (size_t i_index = 1; i_index < size_minus_last; ++i_index)
+    {
+        const size_t current_line_idx = line_order.polyOrder[i_index];
+        const auto& polyline = polygons[current_line_idx];
+        const bool inside_exclusion = is_inside_exclusion(polyline);
+        if (last_inside_exclusion && inside_exclusion)
+        {
+            any_non_monotonic |=
+                ! is_monotonic_order
+                (
+                    polygons[line_order.polyOrder[i_index - 1]],
+                    polyline,
+                    polygons[line_order.polyOrder[i_index + 1]]
+                );
+        }
+        else
+        {
+            if (i_index - current_string_start_index >= 3)
+            {
+                for (size_t i = current_string_start_index; i < i_index; ++i)
+                {
+                    exclude_indices.push_back(line_order.polyOrder[i]);
+                }
+            }
+            current_string_start_index = i_index + 1;
+            any_non_monotonic = false;
+        }
+        last_inside_exclusion = inside_exclusion;
+    }
+
     // Order monotonically, except for line-segments which stay in the excluded areas (read: close to the walls) consecutively.
     PathOrderMonotonic<ConstPolygonRef> order(monotonic_direction, max_adjacent_distance, last_position);
     Polygons left_over;
-    bool last_would_have_been_excluded = false;
     for(const auto& line_idx : line_order.polyOrder)
     {
         const auto& polyline = polygons[line_idx];
-        const bool inside_exclusion = is_inside_exclusion(polyline);
-        const bool next_would_have_been_included = inside_exclusion && (line_idx < polygons.size() - 1 && is_inside_exclusion(polygons[line_idx + 1]));
-        if (inside_exclusion && last_would_have_been_excluded && next_would_have_been_included)
+        if (line_idx == exclude_indices.front())
         {
+            exclude_indices.pop_front();
             left_over.add(polyline);
         }
         else
         {
             order.addPolyline(polyline);
         }
-        last_would_have_been_excluded = inside_exclusion;
     }
     order.optimize();
 
