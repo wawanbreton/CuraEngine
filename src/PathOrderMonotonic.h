@@ -43,9 +43,29 @@ public:
     using typename PathOrder<PathType>::Path;
     using PathOrder<PathType>::coincident_point_distance;
 
+    static Point getVectorFromAngle(const AngleRadians monotonic_direction)
+    {
+        return Point(-std::cos(monotonic_direction) * monotonic_vector_resolution, std::sin(monotonic_direction)* monotonic_vector_resolution);
+    }
+
+    static bool isMonotonic(const Point& monotonic_vector, ConstPolygonPointer a, ConstPolygonPointer b)
+    {
+        const coord_t a_start_projection = dot(a->front(), monotonic_vector);
+        const coord_t a_end_projection = dot(a->back(), monotonic_vector);
+        const coord_t a_projection_min = std::min(a_start_projection, a_end_projection); //The projection of a path is the endpoint furthest back of the two endpoints.
+        const coord_t a_projection_max = std::max(a_start_projection, a_end_projection); //But in case of ties, the other endpoint counts too. Important for polylines where multiple endpoints have the same position!
+
+        const coord_t b_start_projection = dot(b->front(), monotonic_vector);
+        const coord_t b_end_projection = dot(b->back(), monotonic_vector);
+        const coord_t b_projection_min = std::min(b_start_projection, b_end_projection);
+        const coord_t b_projection_max = std::max(b_start_projection, b_end_projection);
+
+        return a_projection_min < b_projection_min || (a_projection_min == b_projection_min && a_projection_max < b_projection_max);
+    }
+
     PathOrderMonotonic(const AngleRadians monotonic_direction, const coord_t max_adjacent_distance, const Point start_point)
       //The monotonic vector needs to rotate clockwise instead of counter-clockwise, the same as how the infill patterns are generated.
-    : monotonic_vector(-std::cos(monotonic_direction) * monotonic_vector_resolution, std::sin(monotonic_direction) * monotonic_vector_resolution)
+    : monotonic_vector(getVectorFromAngle(monotonic_direction))
     , max_adjacent_distance(max_adjacent_distance)
     {
         this->start_point = start_point;
@@ -192,19 +212,17 @@ public:
         //Order the starting points of each segments monotonically. This is the order in which to print each segment.
         std::vector<Path*> starting_lines_monotonic;
         starting_lines_monotonic.resize(starting_lines.size());
-        std::partial_sort_copy(starting_lines.begin(), starting_lines.end(), starting_lines_monotonic.begin(), starting_lines_monotonic.end(), [this](Path* a, Path* b) {
-            const coord_t a_start_projection = dot(a->converted->front(), monotonic_vector);
-            const coord_t a_end_projection = dot(a->converted->back(), monotonic_vector);
-            const coord_t a_projection_min = std::min(a_start_projection, a_end_projection); //The projection of a path is the endpoint furthest back of the two endpoints.
-            const coord_t a_projection_max = std::max(a_start_projection, a_end_projection); //But in case of ties, the other endpoint counts too. Important for polylines where multiple endpoints have the same position!
-
-            const coord_t b_start_projection = dot(b->converted->front(), monotonic_vector);
-            const coord_t b_end_projection = dot(b->converted->back(), monotonic_vector);
-            const coord_t b_projection_min = std::min(b_start_projection, b_end_projection);
-            const coord_t b_projection_max = std::max(b_start_projection, b_end_projection);
-
-            return a_projection_min < b_projection_min || (a_projection_min == b_projection_min && a_projection_max < b_projection_max);
-        });
+        std::partial_sort_copy
+        (
+            starting_lines.begin(),
+            starting_lines.end(),
+            starting_lines_monotonic.begin(),
+            starting_lines_monotonic.end(),
+            [this](Path* a, Path* b)
+            {
+                return isMonotonic(monotonic_vector, a->converted, b->converted);
+            }
+        );
 
         //Now that we have the segments of overlapping lines, and know in which order to print the segments, print segments in monotonic order.
         Point current_pos = this->start_point;
