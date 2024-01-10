@@ -14,6 +14,7 @@
 #include "settings/PathConfigStorage.h" //For the MeshPathConfigs subclass.
 #include "utils/ExtrusionLine.h" //Processing variable-width paths.
 #include "utils/NoCopy.h"
+#include "utils/gettime.h"
 
 namespace cura
 {
@@ -25,7 +26,6 @@ class SliceDataStorage;
 class SliceMeshStorage;
 class SliceLayer;
 class SliceLayerPart;
-class TimeKeeper;
 
 /*!
  * Secondary stage in Fused Filament Fabrication processing: The generated polygons are used in the gcode generation.
@@ -139,6 +139,13 @@ public:
     void writeGCode(SliceDataStorage& storage, TimeKeeper& timeKeeper);
 
 private:
+    struct ProcessLayerResult
+    {
+        LayerPlan* layer_plan;
+        double total_elapsed_time;
+        TimeKeeper::RegisteredTimes stages_times;
+    };
+
     /*!
      * \brief Set the FffGcodeWriter::fan_speed_layer_time_settings by
      * retrieving all settings from the global/per-meshgroup settings.
@@ -210,7 +217,7 @@ private:
      * \param total_layers The total number of layers.
      * \return The layer plans
      */
-    LayerPlan& processLayer(const SliceDataStorage& storage, LayerIndex layer_nr, const size_t total_layers) const;
+    ProcessLayerResult processLayer(const SliceDataStorage& storage, LayerIndex layer_nr, const size_t total_layers) const;
 
     /*!
      * This function checks whether prime blob should happen for any extruder on the first layer.
@@ -305,12 +312,11 @@ private:
     /*!
      * Add a single layer from a single mesh-volume to the layer plan \p gcodeLayer in mesh surface mode.
      *
-     * \param[in] storage where the slice data is stored.
      * \param mesh The mesh to add to the layer plan \p gcodeLayer.
      * \param mesh_config the line config with which to print a print feature
      * \param gcodeLayer The initial planning of the gcode of the layer.
      */
-    void addMeshLayerToGCode_meshSurfaceMode(const SliceDataStorage& storage, const SliceMeshStorage& mesh, const MeshPathConfigs& mesh_config, LayerPlan& gcodeLayer) const;
+    void addMeshLayerToGCode_meshSurfaceMode(const SliceMeshStorage& mesh, const MeshPathConfigs& mesh_config, LayerPlan& gcodeLayer) const;
 
     /*!
      * Add the open polylines from a single layer from a single mesh-volume to the layer plan \p gcodeLayer for mesh the surface modes.
@@ -391,13 +397,8 @@ private:
      * \param part The part for which to create gcode.
      * \return Whether this function added anything to the layer plan.
      */
-    bool processMultiLayerInfill(
-        const SliceDataStorage& storage,
-        LayerPlan& gcodeLayer,
-        const SliceMeshStorage& mesh,
-        const size_t extruder_nr,
-        const MeshPathConfigs& mesh_config,
-        const SliceLayerPart& part) const;
+    bool processMultiLayerInfill(LayerPlan& gcodeLayer, const SliceMeshStorage& mesh, const size_t extruder_nr, const MeshPathConfigs& mesh_config, const SliceLayerPart& part)
+        const;
 
     /*!
      * \brief Add normal sparse infill for a given part in a layer.
@@ -542,7 +543,6 @@ private:
      * \param[in] storage where the slice data is stored.
      * \param gcode_layer The initial planning of the gcode of the layer.
      * \param mesh The mesh for which to add to the layer plan \p gcode_layer.
-     * \param mesh_config The mesh-config for which to add to the layer plan \p gcode_layer.
      * \param extruder_nr The extruder for which to print all features of the mesh which should be printed with this extruder
      * \param area The area to fill
      * \param config the line config with which to print the print feature
@@ -559,7 +559,6 @@ private:
         const SliceDataStorage& storage,
         LayerPlan& gcode_layer,
         const SliceMeshStorage& mesh,
-        const MeshPathConfigs& mesh_config,
         const size_t extruder_nr,
         const Polygons& area,
         const GCodePathConfig& config,
@@ -594,7 +593,7 @@ private:
      * \param last_position The position the print head is in before going to fill the part
      * \return The location near where to start filling the part
      */
-    std::optional<Point> getSeamAvoidingLocation(const Polygons& filling_part, int filling_angle, Point last_position) const;
+    std::optional<Point2LL> getSeamAvoidingLocation(const Polygons& filling_part, int filling_angle, Point2LL last_position) const;
 
     /*!
      * Add the g-code for ironing the top surface.
