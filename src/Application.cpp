@@ -1,4 +1,4 @@
-// Copyright (c) 2023 UltiMaker
+// Copyright (c) 2024 UltiMaker
 // CuraEngine is released under the terms of the AGPLv3 or higher
 
 #include "Application.h"
@@ -18,15 +18,10 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-#include "FffProcessor.h"
 #include "communication/ArcusCommunication.h" //To connect via Arcus to the front-end.
 #include "communication/CommandLine.h" //To use the command line to slice stuff.
-#include "plugins/slots.h"
 #include "progress/Progress.h"
 #include "utils/ThreadPool.h"
-#ifdef SENTRY_URL
-#include "utils/sentry_sink.h"
-#endif
 #include "utils/string.h" //For stringcasecompare.
 
 namespace cura
@@ -38,11 +33,6 @@ Application::Application()
     auto dup_sink = std::make_shared<spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds{ 10 });
     auto base_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     dup_sink->add_sink(base_sink);
-
-#ifdef SENTRY_URL
-    auto sentry_sink = std::make_shared<SentryBreadcrumbSink_mt>();
-    dup_sink->add_sink(sentry_sink);
-#endif
 
     spdlog::default_logger()->sinks()
         = std::vector<std::shared_ptr<spdlog::sinks::sink>>{ dup_sink }; // replace default_logger sinks with the duplicating filtering sink to avoid spamming
@@ -139,7 +129,9 @@ void Application::printHelp() const
     fmt::print("  -v\n\tIncrease the verbose level (show log messages).\n");
     fmt::print("  -m<thread_count>\n\tSet the desired number of threads.\n");
     fmt::print("  -p\n\tLog progress information.\n");
+    fmt::print("  -d Add definition search paths seperated by a `:` (Unix) or `;` (Windows)\n");
     fmt::print("  -j\n\tLoad settings.def.json file to register all settings and their defaults.\n");
+    fmt::print("  -r\n\tLoad a json file containing resolved setting values.\n");
     fmt::print("  -s <setting>=<value>\n\tSet a setting to a value for the last supplied object, \n\textruder train, or general settings.\n");
     fmt::print("  -l <model_file>\n\tLoad an STL model. \n");
     fmt::print("  -g\n\tSwitch setting focus to the current mesh group only.\n\tUsed for one-at-a-time printing.\n");
@@ -156,11 +148,50 @@ void Application::printHelp() const
     fmt::print("\n");
 }
 
-void Application::printLicense() const
+void Application::printHeader() const
 {
     fmt::print("\n");
     fmt::print("Cura_SteamEngine version {}\n", CURA_ENGINE_VERSION);
-    fmt::print("Copyright (C) 2023 Ultimaker\n");
+
+#ifdef DEBUG
+    fmt::print("\n");
+    fmt::print(" _______   ________  _______   __    __   ______\n");
+    fmt::print("/       \\ /        |/       \\ /  |  /  | /      \\\n");
+    fmt::print("███████  |████████/ ███████  |██ |  ██ |/██████  |\n");
+    fmt::print("██ |  ██ |██ |__    ██ |__██ |██ |  ██ |██ | _██/\n");
+    fmt::print("██ |  ██ |██    |   ██    ██< ██ |  ██ |██ |/    |\n");
+    fmt::print("██ |  ██ |█████/    ███████  |██ |  ██ |██ |████ |\n");
+    fmt::print("██ |__██ |██ |_____ ██ |__██ |██ \\__██ |██ \\__██ |\n");
+    fmt::print("██    ██/ ██       |██    ██/ ██    ██/ ██    ██/\n");
+    fmt::print("███████/  ████████/ ███████/   ██████/   ██████/\n");
+    fmt::print("\n");
+    fmt::print(" __       __   ______   _______   ________\n");
+    fmt::print("/  \\     /  | /      \\ /       \\ /        |\n");
+    fmt::print("██  \\   /██ |/██████  |███████  |████████/\n");
+    fmt::print("███  \\ /███ |██ |  ██ |██ |  ██ |██ |__\n");
+    fmt::print("████  /████ |██ |  ██ |██ |  ██ |██    |\n");
+    fmt::print("██ ██ ██/██ |██ |  ██ |██ |  ██ |█████/\n");
+    fmt::print("██ |███/ ██ |██ \\__██ |██ |__██ |██ |_____\n");
+    fmt::print("██ | █/  ██ |██    ██/ ██    ██/ ██       |\n");
+    fmt::print("██/      ██/  ██████/  ███████/  ████████/\n");
+    fmt::print("\n");
+
+    fmt::print("#########################################################\n");
+    fmt::print("#########################################################\n");
+    fmt::print("## WARNING: This version of CuraEngine has been built  ##\n");
+    fmt::print("## in developper mode. This may impact performances,   ##\n");
+    fmt::print("## provoke unexpected results or crashes.              ##\n");
+    fmt::print("## If you downloaded an official version of CuraEngine ##\n");
+    fmt::print("## and see this message, please report the issue.      ##\n");
+    fmt::print("#########################################################\n");
+    fmt::print("#########################################################\n");
+#endif
+}
+
+void Application::printLicense() const
+{
+    fmt::print("\n");
+    fmt::print("Copyright (C) 2024 Ultimaker\n");
     fmt::print("\n");
     fmt::print("This program is free software: you can redistribute it and/or modify\n");
     fmt::print("it under the terms of the GNU Affero General Public License as published by\n");
@@ -192,6 +223,7 @@ void Application::run(const size_t argc, char** argv)
     argc_ = argc;
     argv_ = argv;
 
+    printHeader();
     printLicense();
     Progress::init();
 
